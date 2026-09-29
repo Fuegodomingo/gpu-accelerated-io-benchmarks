@@ -55,6 +55,45 @@ The benchmark suite provides:
 
 ---
 
+## Selected Results
+
+The benchmarks show that I/O performance depends strongly on the interaction between the I/O strategy, memory configuration, and Lustre filesystem layout.
+
+### MPI-IO
+
+For a 16 GB/rank workload using pinned host memory, changing the Lustre configuration had a particularly strong effect on collective MPI-IO performance:
+
+| Lustre layout       |   Independent |    Collective |
+| ------------------- | ------------: | ------------: |
+| 2 × 1 MiB (default) |     2.28 GB/s |     1.05 GB/s |
+| 8 × 1 MiB           |     2.21 GB/s |     1.06 GB/s |
+| **8 × 4 MiB**       | **2.22 GB/s** | **2.09 GB/s** |
+| 16 × 1 MiB          |     2.25 GB/s |     0.93 GB/s |
+| 16 × 4 MiB          |     2.24 GB/s |     1.90 GB/s |
+
+This illustrates that increasing the stripe count alone does not necessarily improve performance: the stripe size and I/O access pattern also matter.
+
+### Direct I/O
+
+The Direct I/O experiments also showed a substantial difference between ordinary and pinned host memory. For a 1 GB/rank HDF5 Direct I/O workload on a `2 × 1 MiB` layout, pinned memory achieved **6.94 GB/s**, compared with **2.74 GB/s** for pageable memory.
+
+At larger transfer sizes, filesystem configuration became increasingly important. For example, with a `24 × 2 MiB` layout and 1 GB/rank, HDF5 Direct I/O reached approximately **52–53 GB/s** with pinned or managed memory.
+
+### Application-level validation with Smilei
+
+The benchmark results were subsequently evaluated using the Smilei particle-in-cell simulation framework.
+
+In an 8-GPU 3D simulation, changing the Lustre layout from the default `2 × 1 MiB` to `4 × 1 MiB` reduced the `Fields0` diagnostic time from **460 s to 420 s** and total wall time from **963 s to 921 s**. This corresponds to approximately:
+
+* **8.7% less time spent in the field diagnostic**
+* **4.4% lower total wall time**
+* Effective write rate increasing from approximately **1.01 GB/s to 1.11 GB/s**
+
+A separate 2D Smilei experiment showed an even larger effect when comparing a single Lustre stripe with the default and wider layouts: diagnostic time decreased from **863.1 s (`1 × 1 MiB`) to 268.8 s (`8 × 1 MiB`)**, while the fraction of runtime spent in diagnostics decreased from **41.3% to 18.0%**.
+
+These experiments highlight an important aspect of HPC I/O optimization: **a configuration that performs well in a synthetic benchmark must ultimately be evaluated in the context of the application workload it is intended to accelerate.**
+
+
 ## Repository Structure
 
 ```text
