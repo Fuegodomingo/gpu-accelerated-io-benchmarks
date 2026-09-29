@@ -237,5 +237,211 @@ Lustre striping can be configured directly from the smoke-test script without mo
 
 The default configuration is:
 
+```bash
+STRIPE_COUNT=2
+STRIPE_SIZE="1M"
 ```
+
+For example:
+
+```bash
+STRIPE_COUNT=8
+STRIPE_SIZE="4M"
 ```
+
+or:
+
+```bash
+STRIPE_COUNT=16
+STRIPE_SIZE="4M"
+```
+
+To use the inherited/default filesystem layout:
+
+```bash
+STRIPE_COUNT=""
+STRIPE_SIZE=""
+```
+
+The selected layout is applied to the result directory before benchmark files are created, allowing the files to inherit the requested Lustre configuration.
+
+This makes it possible to compare different filesystem layouts while keeping the benchmark code unchanged.
+
+---
+
+## Benchmark Results
+
+Benchmark output is written to CSV files, which can then be visualized using the included plotting utility.
+
+A typical result directory contains:
+
+```text
+results/
+└── smoke_<jobid>/
+    ├── posix.log
+    ├── posix_bench.csv
+    ├── mpi.log
+    ├── mpi_bench.csv
+    ├── hdf5.log
+    ├── hdf5_bench.csv
+    └── plots/
+```
+
+Slurm output is stored separately under:
+
+```text
+.smoke_build/
+```
+
+---
+
+## Plotting
+
+The included plotting script reads the benchmark CSV files directly:
+
+```bash
+python plots/plot_benchmark.py <benchmark.csv>
+```
+
+For example:
+
+```bash
+python plots/plot_benchmark.py \
+    results/smoke_1234567/mpi_bench.csv
+```
+
+The script automatically detects the allocation types and write strategies present in the CSV file.
+
+It generates:
+
+* D2H bandwidth comparisons by allocation type
+* Write-bandwidth plots for each allocation type
+
+Additional strategy-oriented plots can be enabled with:
+
+```bash
+python plots/plot_benchmark.py <benchmark.csv> --strategy-plots
+```
+
+Optional theoretical reference lines can be added with:
+
+```bash
+--d2h-reference
+```
+
+and:
+
+```bash
+--write-reference
+```
+
+Figures are written to:
+
+```text
+plots/<csv_name>/
+```
+
+Automatic plotting from the smoke test can be disabled with:
+
+```bash
+PLOT_RESULTS=0
+```
+
+---
+
+## Measurement Details
+
+The benchmark suite follows several conventions to make measurements consistent.
+
+### Bandwidth
+
+Aggregate write bandwidth is computed as:
+
+```text
+total bytes / mean wall time
+```
+
+### MPI-IO
+
+Timed MPI writes include:
+
+```cpp
+MPI_File_sync
+```
+
+Large MPI writes exceeding the legacy `int` count limit are split into requests aligned to 4 MiB boundaries.
+
+### HDF5
+
+Timed HDF5 writes include:
+
+```cpp
+H5Fflush
+```
+
+Datasets are created collectively and pre-created outside the timed region so that dataset creation is not included in the measured write time.
+
+### Lustre
+
+Lustre stripe count and stripe size are configured externally using the filesystem layout.
+
+The benchmark does **not** override the layout through `MPI_Info`; the layout configured with `lfs setstripe` is authoritative.
+
+---
+
+## Validation
+
+The benchmark suite includes output verification to ensure that performance measurements are not obtained at the expense of incorrect data.
+
+The validation infrastructure supports both:
+
+* raw-file verification
+* HDF5 verification
+
+The HDF5 and raw-file verification implementations are intentionally separated so that the POSIX benchmark can perform raw-file verification without introducing an unnecessary HDF5 dependency.
+
+---
+
+## Reproducibility
+
+When comparing benchmark configurations, the following parameters should be recorded:
+
+* HPC system
+* GPU model
+* number of GPUs / MPI ranks
+* data size per rank
+* host-memory allocation type
+* I/O interface
+* MPI-IO access mode
+* Direct I/O configuration
+* Lustre stripe count
+* Lustre stripe size
+* number of timed iterations
+
+Filesystem load and system configuration can affect measured bandwidth, so results should be interpreted in the context of the machine and filesystem configuration used.
+
+---
+
+## From Synthetic Benchmarks to Scientific Workloads
+
+The benchmark suite was developed as part of a broader investigation into GPU-to-storage performance for scientific simulations.
+
+After studying the individual components of the I/O path, the resulting observations were evaluated using **Smilei**, a particle-in-cell simulation framework.
+
+This application-level validation helped determine whether the trends observed in synthetic benchmarks translated to a realistic scientific workload.
+
+---
+
+## Project Context
+
+This work was carried out during a research internship at **CEA / Maison de la Simulation**.
+
+The project focused on **GPU-to-storage I/O performance in HPC systems**, with experiments conducted on the Ruche and Adastra platforms.
+
+The work involved GPU programming, parallel I/O, filesystem configuration, benchmarking methodology, and performance analysis.
+
+---
+
+## License
+
+This project is released under the license specified in [`LICENSE`](LICENSE).
