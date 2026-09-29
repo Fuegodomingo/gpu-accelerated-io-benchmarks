@@ -1,29 +1,57 @@
-# gpu-accelerated-io-benchmarks
+# GPU I/O Benchmarks
+
 HPC benchmarks for GPU-to-storage I/O using MPI, HDF5, CUDA, and HIP.
 
-This repository contains the benchmarking code developed during my research internship at **CEA / Maison de la Simulation**, investigating data movement between GPUs and parallel storage systems on HPC platforms.
+This repository contains a benchmark suite developed during a research internship at **CEA / Maison de la Simulation** to investigate data movement between GPUs and parallel storage systems on HPC platforms.
 
-The project studies how GPU memory transfers, MPI-IO, HDF5, direct I/O, memory alignment, and Lustre striping affect I/O performance, with a final validation using the **Smilei** particle-in-cell simulation code.
+The suite compares several I/O approaches and configurations, including POSIX I/O, MPI-IO, parallel HDF5, Direct I/O, pinned host memory, and Lustre striping.
 
 ---
 
 ## Overview
 
-Modern HPC applications increasingly generate large amounts of data on accelerators, making efficient data movement between GPU memory and storage an important performance consideration.
+GPU-accelerated applications can generate large amounts of data that must eventually be transferred from GPU memory to storage. The performance of this path depends on several components:
 
-The objective of this project was to investigate the performance of different I/O paths and configurations, with particular attention to:
+```text
+GPU memory
+    │
+    │ D2H transfer
+    ▼
+Host memory
+    │
+    │ POSIX / MPI-IO / HDF5
+    ▼
+Parallel filesystem
+    │
+    │ Lustre striping
+    ▼
+Storage
+```
 
-* GPU-to-host memory transfers
-* Host memory allocation and pinned memory
-* POSIX and MPI-IO
-* HDF5 parallel I/O
-* Direct I/O
-* Memory alignment requirements
-* Lustre striping configuration
-* Scaling with data size and number of MPI processes
-* The impact of I/O configuration on a real HPC application
+This project provides reproducible benchmarks for studying the different stages of this pipeline and their interaction.
 
-The experiments were initially developed and tested on **Ruche** and were subsequently adapted to **Adastra**, where the Lustre storage system enabled a more detailed investigation of striping and Direct I/O.
+The benchmarks were developed and tested on HPC systems including **Ruche** and **Adastra**, with the final benchmark suite targeting GPU-equipped Adastra nodes.
+
+---
+
+## Features
+
+The benchmark suite provides:
+
+* Multi-GPU POSIX write benchmarks
+* MPI-IO Independent and Collective writes
+* MPI-IO Direct I/O
+* Parallel HDF5 Independent and Collective writes
+* HDF5 Collective Chunked writes
+* HDF5 Direct I/O
+* GPU-to-host transfers using HIP
+* Pinned host memory
+* Output verification and checksums
+* CSV benchmark output
+* Automatic report generation
+* Benchmark plotting
+* Configurable Lustre striping
+* A lightweight end-to-end smoke test
 
 ---
 
@@ -31,199 +59,183 @@ The experiments were initially developed and tested on **Ruche** and were subseq
 
 ```text
 .
-├── bench_posix/       # POSIX I/O benchmarks
-├── bench_mpi/         # MPI-IO benchmarks
-├── bench_hdf5/        # Parallel HDF5 benchmarks
-├── smoke_test/        # Small tests for validating configurations
-├── scripts/            # Benchmarking / plotting utilities
-├── tutorial/           # Short introduction to running the benchmarks
+├── benchmarks/
+│   ├── posix_main.cpp       # Multi-GPU POSIX benchmarks
+│   ├── mpi_main.cpp         # MPI-IO benchmarks
+│   └── hdf5_main.cpp        # HDF5 benchmarks
+│
+├── include/
+│   ├── benchmark/           # Parameters, timers and statistics
+│   ├── io/                  # POSIX, MPI-IO and HDF5 implementations
+│   ├── output/              # CSV and report generation
+│   ├── transfer/            # GPU-to-host transfer
+│   └── validation/          # Output verification and runtime checks
+│
+├── src/
+│   ├── benchmark/
+│   ├── io/
+│   ├── output/
+│   ├── transfer/
+│   └── validation/
+│
+├── plots/
+│   └── plot_benchmark.py    # Benchmark plotting utility
+│
+├── scripts/
+│   ├── build.sh             # Adastra build script
+│   └── smoke_test.sh        # End-to-end smoke test
+│
 └── README.md
 ```
 
-> The exact contents may vary depending on the machine and experiment; the benchmark directories contain the corresponding source code and build/run instructions.
+More detailed implementation notes and source-to-header mappings are provided separately in [`Benchmark notes`](Benchmark%20notes).
 
 ---
 
-## Benchmark Categories
+## Benchmark Executables
 
-### POSIX I/O
+The suite has three main entry points.
 
-Basic file I/O experiments are used as a reference point for comparing higher-level interfaces.
+### POSIX
 
-The benchmarks investigate the effect of:
+```text
+benchmarks/posix_main.cpp
+```
 
-* data size
-* number of processes
-* sequential versus parallel access
-* standard versus direct I/O
+Provides multi-GPU POSIX write strategies without MPI.
 
 ### MPI-IO
 
-MPI-IO benchmarks evaluate both **independent** and **collective** access patterns.
-
-The experiments measure aggregate write bandwidth while varying:
-
-* number of MPI ranks
-* amount of data written
-* I/O mode
-* memory configuration
-* filesystem striping
-
-### Parallel HDF5
-
-Parallel HDF5 is tested as a higher-level interface commonly used by scientific applications.
-
-Both standard and Direct I/O configurations are considered, allowing the performance of HDF5-based output to be compared with lower-level MPI-IO approaches.
-
-### Direct I/O
-
-Direct I/O bypasses the operating system page cache and introduces additional requirements on the memory address, offset, and transfer size.
-
-The benchmarks therefore include experiments specifically investigating:
-
-* alignment
-* pinned host memory
-* transfer size
-* MPI rank scaling
-* direct MPI-IO
-* direct HDF5 I/O
-
----
-
-## GPU and Host Memory
-
-The GPU experiments use accelerator memory together with host-side buffers to study the data movement involved in writing simulation data to storage.
-
-The code includes experiments with GPU memory transfers and pinned host memory, including configurations designed to overlap:
-
 ```text
-GPU → Host → Storage
+benchmarks/mpi_main.cpp
 ```
 
-and, where applicable, overlap GPU computation and data movement.
+Provides:
 
-Pinned host memory is particularly relevant because it enables more efficient GPU↔CPU transfers, but its allocation must be handled carefully when using many MPI processes since allocations are performed per process.
+* MPI-IO Independent
+* MPI-IO Collective
+* MPI-IO Direct I/O
 
----
+### HDF5
 
-## Adastra and Lustre
+```text
+benchmarks/hdf5_main.cpp
+```
 
-A significant part of the project was conducted on **Adastra**, where the Lustre filesystem made it possible to study the impact of filesystem striping.
+Provides:
 
-The experiments vary the Lustre:
+* HDF5 Independent
+* HDF5 Collective
+* HDF5 Collective Chunked
+* HDF5 Direct I/O
 
-* stripe count
-* stripe size
-
-and measure the resulting aggregate I/O bandwidth.
-
-This revealed that storage configuration can have a substantial effect on application-level I/O performance, particularly for large parallel writes.
-
----
-
-## Main Results
-
-The experiments showed that I/O performance depends strongly on the interaction between the application, memory configuration, I/O interface, and filesystem configuration.
-
-Among the main observations:
-
-* Proper memory alignment is essential for Direct I/O.
-* Pinned host memory can improve the GPU-to-host transfer path but introduces significant per-process memory requirements.
-* MPI-IO can achieve very high aggregate bandwidth when the access pattern and filesystem configuration are well matched.
-* Lustre striping has a substantial impact on parallel I/O performance.
-* Increasing the stripe count and stripe size can significantly improve the performance of large parallel writes.
-* Higher-level interfaces such as HDF5 introduce additional considerations compared with direct MPI-IO.
-* Optimizing a synthetic benchmark does not necessarily translate directly into the same improvement for a complete scientific application.
-
-In the final Adastra experiments, aligned MPI Direct I/O reached approximately **81 GB/s** for the tested 4 GB/rank configuration with a `16 × 1 MiB` Lustre stripe configuration.
-
-The same filesystem-level optimization was then evaluated using Smilei. For the tested diagnostic workload, the fraction of the simulation spent in diagnostics decreased from approximately **41% to 17%** when moving from `1 × 1 MiB` to `16 × 4 MiB` striping.
-
-These results illustrate the importance of considering the complete I/O pipeline rather than optimizing GPU transfers or storage independently.
+All three executables share the common benchmark, transfer, output, and validation infrastructure where appropriate.
 
 ---
 
-## Smilei Validation
+## Building on Adastra
 
-To evaluate whether the benchmark results translated to a real scientific workload, the final stage of the project used **Smilei**, a particle-in-cell simulation framework.
+The provided build script loads the required HPC environment and builds all three executables:
 
-The purpose was not to modify Smilei's computational kernels, but to investigate how storage configuration affected the I/O-heavy diagnostic workload.
+```bash
+./scripts/build.sh
+```
 
-This provided an application-level validation of the trends observed in the synthetic benchmarks.
+The resulting binaries are:
 
----
+```text
+build/bin/bench_posix
+build/bin/bench_mpi
+build/bin/bench_hdf5
+```
 
-## Tutorial
+The build environment uses the Cray programming environment together with MPI, parallel HDF5, and ROCm.
 
-A short tutorial is included in the repository to introduce the benchmark workflow and provide examples of how to build and run the tests.
+The GPU transfer implementation in:
 
-It covers the basic steps required to:
+```text
+src/transfer/d2h_transfer.cpp
+```
 
-1. Configure the environment
-2. Build the benchmarks
-3. Run small validation tests
-4. Launch MPI/POSIX/HDF5 experiments
-5. Collect performance measurements
-6. Compare different I/O configurations
-
-The tutorial is intended to make the benchmark suite easier to reuse and adapt to other HPC systems.
-
----
-
-## Software Environment
-
-The experiments were conducted using HPC environments including:
-
-* **C/C++**
-* **CUDA / HIP**
-* **MPI**
-* **Parallel HDF5**
-* **POSIX I/O**
-* **Lustre**
-* **Smilei**
-
-On Adastra, the experiments used the corresponding Cray programming environment, Cray MPI, parallel HDF5, and ROCm stack available on the system.
+contains HIP code and must therefore be compiled with a HIP-capable C++ compiler.
 
 ---
 
-## Reproducibility
+## Smoke Test
 
-The benchmarks are designed to make individual components of the I/O path measurable independently.
+A lightweight end-to-end smoke test is provided to verify that the complete benchmark workflow is functional:
 
-For meaningful comparisons, the following parameters should be recorded for each experiment:
+```bash
+./scripts/smoke_test.sh
+```
 
-* HPC system and filesystem
-* GPU model
-* number of GPUs / MPI ranks
-* data size per rank
-* I/O interface
-* collective or independent MPI-IO
-* Direct I/O configuration
-* memory type
-* Lustre stripe count
-* Lustre stripe size
+The smoke test is intentionally small and is designed for **functional validation rather than performance measurement**.
 
-Filesystem configuration and system load can significantly affect measured bandwidth, so absolute results should be interpreted in the context of the machine on which they were obtained.
+It exercises the complete pipeline:
+
+```text
+Build
+  ↓
+Slurm submission
+  ↓
+GPU → host transfer
+  ↓
+POSIX / MPI-IO / HDF5
+  ↓
+Output verification
+  ↓
+CSV generation
+  ↓
+Plot generation
+```
+
+### Default configuration
+
+The default smoke test uses:
+
+* 4 MiB per rank/GPU
+* one timed iteration
+* pinned host memory
+* output verification
+* one MI250X node
+* two GPU GCDs
+* Lustre striping: 2 × 1 MiB
+
+All write strategies implemented by the enabled benchmark families are exercised.
+
+Because the dataset is intentionally small and only one timed iteration is performed, the resulting bandwidth values **should not be interpreted as representative performance measurements**.
 
 ---
 
-## Motivation
+## Selecting Benchmark Families
 
-The goal of this repository is not to provide a universal "best" I/O configuration. Instead, it provides a collection of reproducible experiments for understanding **where I/O performance is lost and which parts of the GPU-to-storage pipeline are responsible**.
+The smoke test can independently enable or disable the three benchmark families:
 
-The benchmark suite can therefore be used as a starting point for investigating I/O performance on other GPU-based HPC systems and scientific workloads.
+```bash
+RUN_POSIX=1
+RUN_MPI=1
+RUN_HDF5=1
+```
+
+For example:
+
+```bash
+RUN_POSIX=0
+RUN_MPI=1
+RUN_HDF5=1
+```
+
+runs only the MPI-IO and HDF5 benchmarks.
+
+Individual write strategies are selected internally by the benchmark executables.
 
 ---
 
-## Acknowledgements
+## Lustre Striping
 
-This work was carried out during a research internship at **CEA / Maison de la Simulation**.
+Lustre striping can be configured directly from the smoke-test script without modifying the benchmark source code.
 
-The project was conducted in the context of high-performance computing and scientific simulation, with experiments performed on the **Ruche** and **Adastra** HPC platforms.
+The default configuration is:
 
----
-
-## License
-
-[Add your chosen license here.]
-
+```
+```
